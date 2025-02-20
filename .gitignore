@@ -1,0 +1,5 @@
+*.o
+drnim_webcgi
+*~
+core
+a.out
