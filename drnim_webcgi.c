@@ -14,18 +14,25 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <sys/time.h>
 
+#define HTTP_200 "HTTP/1.1 200 OK"
+
+/* #define APACHE_SERVER */
 #define DEFAULT_MARBLE_COUNT 15
 #define WEB_APP_PATH "/cgi-bin/drnim_webcgi"
 #define MARBLE_IMAGE_PATH "/images/marble.png"
 #define REMAINING_MARBLES_HTTP_REQ_PARAM "remaining_marbles"
 #define PLAYER_TAKES_HTTP_REQ_PARAM "player_takes"
+#define MAX_CONTENT_LENGTH 100
 
 #define PLAYER_STATUS_OK 0
 #define PLAYER_STATUS_ERROR -1
 
-int marbles;
+#define CONTENT_LENGTH_ENV "CONTENT_LENGTH"
+#define QUERY_STRING_ENV "QUERY_STRING"
 
+int marbles;
 
 /* Function prototypes */
 void run_game();
@@ -56,12 +63,22 @@ void run_game(player_takes)
 int player_takes;
 {
     int player_status;
+    char *content_length = getenv(CONTENT_LENGTH_ENV);
+    int limit = 10;
 
     html_header();
 
     printf("<!-- Marbles remaining param:%d  Player takes param:%d -->\n", 
         marbles, player_takes);
+    printf("<!-- CONTENT_LENGTH env: %s -->\n", (content_length? content_length : "Null pointer"));
 
+    /* printf("<!-- Environment\n");
+    while (limit-- && *enviterator) {
+        printf("%s\n", *enviterator);
+        enviterator++;
+    }
+    printf("-->\n"); */
+    
     if (marbles == 15 && player_takes == 0) {
         html_new_game();
     } else {
@@ -164,13 +181,19 @@ void dr_nim_turn()
     /* The player currently has an advantage, 
         take a random number of marbles */
     if (!take) {
-        take = rand() % 3 + 1;
+        int r;
+        struct timeval time;
+        gettimeofday(&time, NULL);
+        srand((int) time.tv_sec);
+        r = rand();
+        take = r % 3 + 1;
         if (take > marbles) {
             take = marbles - 1;
         }
         if (!take) {
             take = 1;
         }
+        printf("\n<!-- time:%ld, rand:%d, marbles:%d, take:%d -->\n", time.tv_sec, r, marbles, take);
     }
     
     printf("<table cellspacing='10' cellpadding='0' border='0'><tr><td valign='center'>");
@@ -205,23 +228,52 @@ char **argv;
 char *request_param;
 int min, max, default_value;
 {
+    static char buffer[MAX_CONTENT_LENGTH + 1] = "";
     int value = default_value;
     char *param;
 
-    while (*argv) {
-        if ((param = strstr(*argv, request_param)) != NULL && 
-                *(param + strlen(request_param)) == '=') {
-            value = *(param + strlen(request_param) + 1);
-            if (value >= '0' && value <= '9') {
-                value -= '0';
-            } else if (toupper(value) >= 'A' && toupper(value) <= 'F') {
-                value = 10 + (toupper(value) - 'A');
+    /* On first call, get the request content and store it */
+    if (!*buffer) {
+        int content_length;
+        char *content_length_str = getenv(CONTENT_LENGTH_ENV);
+        if (content_length_str) {
+            content_length = atoi(content_length_str);
+            if (content_length > 0) {
+                int total_bytes_read = 0;
+            
+                if (content_length > MAX_CONTENT_LENGTH) {
+                content_length = MAX_CONTENT_LENGTH;
+                }
+
+                while (total_bytes_read < content_length) {
+                    total_bytes_read += fread(buffer + total_bytes_read, 
+                        sizeof(char), content_length-total_bytes_read, stdin);
+                }
+                buffer[total_bytes_read] = '\0';
             }
-            break;
         }
-        argv++;
+        if (!*buffer) {
+            /* Check QUERY_STRING for data (perhaps GET request) */
+            char *query_string = getenv(QUERY_STRING_ENV);
+            if (query_string) {
+                strncpy(buffer, query_string, MAX_CONTENT_LENGTH);
+                *(buffer + MAX_CONTENT_LENGTH) = '\0';
+            }
+        }
     }
     
+    /* Search for the request parameter */
+    if ((param = strstr(buffer, request_param)) != NULL && 
+            *(param + strlen(request_param)) == '=') {
+        value = *(param + strlen(request_param) + 1);
+        if (value >= '0' && value <= '9') {
+            value -= '0';
+        } else if (toupper(value) >= 'A' && toupper(value) <= 'F') {
+            value = 10 + (toupper(value) - 'A');
+        }
+    }
+
+    /* If the value is outside the expected range, or missing, return a default value */
     if (value < min || value > max) {
         value = default_value;
     }
@@ -231,12 +283,14 @@ int min, max, default_value;
     
 /* The header sent to begin each response */
 void html_header() {
-    printf("HTTP/1.1 200 OK\n");
+#ifndef APACHE_SERVER
+    printf("%s\n", HTTP_200);
+#endif
     printf("Content-Type: text/html; charset=utf-8\n");
     printf("Cache-Control: no-store, no-cache\n");
-    printf("max-age=0\n");
+    printf("max-age: 0\n");
     printf("Expires: -1\n");
-    printf("\n");
+    printf("\r\n");
     printf("<html>\n");
     printf("<head>");
     printf("  <title>Dr. Nim</title>\n");
