@@ -13,3 +13,9 @@ On the PiDP11 the URL to access the game is http://PiDP_IP_ADDRESS/cgi-bin/drnim
 You can force a starting number of marbles (in hex, up to F) and first move (1-3) using a GET request. For example this start the number of marbles at 10 and the player takes 1:
 
 http://PiDP_IP_ADDRESS/cgi-bin/drnim_webcgi?remaining_marbles=A&player_takes=1
+
+## Try it out
+
+If my server is cooperating, you can try the Dr. Nim game: http://semantic.monead.com/cgi-bin/drnim_webcgi
+
+If the PiDP-11 is offline, an Apache server should pick up the slack.
